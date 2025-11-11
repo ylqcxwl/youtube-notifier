@@ -1,6 +1,5 @@
 # YouTube 频道ID，每行一个，支持 # 注释
 UC_x5XG1OV2P6uZZ5FSM9Ttw
-# 示例频道ID
 UCU1RaYhgjlaig3ydjJocINg
 UCs-QZ5410JVyyH9wTCsPOCw
 
