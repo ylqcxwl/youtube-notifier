@@ -13,25 +13,39 @@ TELEGRAM_CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID')
 STATE_FILE = 'state.json'
 CHANNELS_FILE = 'channels.txt'
 
-# ==================== 加载频道ID ====================
+# ==================== 加载频道ID + 名称 ====================
 def load_channels():
     if not os.path.exists(CHANNELS_FILE):
         print(f"[警告] {CHANNELS_FILE} 不存在，使用空列表。")
         return []
     
-    channel_ids = []
+    channels = []
     with open(CHANNELS_FILE, 'r', encoding='utf-8') as f:
         for line_num, line in enumerate(f, 1):
             line = line.strip()
             if line and not line.startswith('#'):
-                channel_ids.append(line)
-                print(f"[加载] 频道 {len(channel_ids)}: {line}")
+                parts = line.split('|', 1)  # 以 | 分割 ID 和名称
+                channel_id = parts[0].strip()
+                channel_name = parts[1].strip() if len(parts) > 1 else None
+                channels.append({'id': channel_id, 'name': channel_name})
+                print(f"[加载] 频道 {len(channels)}: {channel_id} ({channel_name or '名称待获取'})")
             elif line.startswith('#'):
                 print(f"[注释] 行 {line_num}: {line}")
-    return channel_ids
+    return channels
+
+# ==================== 获取频道名称（从RSS） ====================
+def get_channel_name(channel_id):
+    rss_url = f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}"
+    try:
+        feed = feedparser.parse(rss_url)
+        if not feed.bozo:
+            return feed.feed.get('title', '未知频道')
+    except Exception as e:
+        print(f"[异常] 获取频道 {channel_id} 名称失败: {e}")
+    return '未知频道'
 
 # ==================== 状态管理 ====================
-def load_state(channel_ids):
+def load_state(channels):
     state = {}
     if os.path.exists(STATE_FILE):
         try:
@@ -44,7 +58,8 @@ def load_state(channel_ids):
     else:
         print(f"[状态] state.json 不存在，将创建新文件")
     
-    for cid in channel_ids:
+    for ch in channels:
+        cid = ch['id']
         if cid not in state:
             state[cid] = {'last_video_id': None, 'last_published': None}
             print(f"[初始化] 频道 {cid} 状态")
@@ -66,7 +81,8 @@ def check_channel_id(channel_id):
         if feed.bozo:
             print(f"[无效] 频道ID {channel_id} 无法访问或RSS解析失败")
             return False
-        print(f"[有效] 频道ID {channel_id} → {feed.feed.get('title', '未知频道')}")
+        name = feed.feed.get('title', '未知频道')
+        print(f"[有效] 频道ID {channel_id} → {name}")
         return True
     except Exception as e:
         print(f"[异常] 检测频道 {channel_id} 时出错: {e}")
@@ -86,7 +102,7 @@ def get_latest_videos(channel_id):
             return []
 
         videos = []
-        for i, entry in enumerate(feed.entries[:3]):  # 只取前3条
+        for i, entry in enumerate(feed.entries[:3]):
             try:
                 video = {
                     'title': entry.title,
@@ -107,24 +123,25 @@ def get_latest_videos(channel_id):
         print(f"[网络错误] 获取频道 {channel_id} RSS 失败: {e}")
         return []
 
-# ==================== Telegram通知（增强版：添加按钮） ====================
-def send_telegram_notification(video):
+# ==================== Telegram通知（带频道名称） ====================
+def send_telegram_notification(video, channel_name):
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
         print("[跳过] Telegram 配置缺失")
         return
 
-    # 消息内容（Markdown 格式）
+    # 消息内容（添加频道名称）
     message = (
-        f"*新视频更新！*\n\n"
+        f"*新视频更新！*\n"
+        f"**频道**：{channel_name}\n\n"
         f"**标题**：{video['title']}\n"
         f"**时间**：{video['published']}\n"
         f"**简介**：{video['description'][:300]}{'...' if len(video['description']) > 300 else ''}"
     )
 
-    # Inline Keyboard：添加“观看视频”按钮（点击跳转 YouTube）
+    # Inline Keyboard：添加“观看视频”按钮
     keyboard = {
         "inline_keyboard": [
-            [{"text": "🎥 观看视频", "url": video['link']}]  # URL 按钮，直接打开链接
+            [{"text": "🎥 观看视频", "url": video['link']}]
         ]
     }
 
@@ -134,7 +151,7 @@ def send_telegram_notification(video):
         'photo': video['thumbnail'],
         'caption': message,
         'parse_mode': 'Markdown',
-        'reply_markup': json.dumps(keyboard)  # 添加按钮 JSON
+        'reply_markup': json.dumps(keyboard)
     }
     try:
         r = requests.post(url, data=payload, timeout=15)
@@ -147,17 +164,19 @@ def send_telegram_notification(video):
 
 # ==================== 主逻辑 ====================
 def check_updates():
-    channel_ids = load_channels()
-    if not channel_ids:
+    channels = load_channels()
+    if not channels:
         print("[退出] 无有效频道ID")
         return
 
-    state = load_state(channel_ids)
+    state = load_state(channels)
     total_updated = 0
 
-    for idx, channel_id in enumerate(channel_ids, 1):
+    for idx, ch in enumerate(channels, 1):
+        channel_id = ch['id']
+        channel_name = ch['name'] or get_channel_name(channel_id)  # 如果无名称，自动获取
         print(f"\n{'='*60}")
-        print(f"[检查 {idx}/{len(channel_ids)}] 频道: {channel_id}")
+        print(f"[检查 {idx}/{len(channels)}] 频道: {channel_id} ({channel_name})")
         print(f"{'='*60}")
 
         videos = get_latest_videos(channel_id)
@@ -170,7 +189,7 @@ def check_updates():
 
         if latest['video_id'] != last_id:
             print(f"[新视频] 发现更新！ID: {latest['video_id']} (原: {last_id})")
-            send_telegram_notification(latest)
+            send_telegram_notification(latest, channel_name)  # 传入名称
             state[channel_id] = {
                 'last_video_id': latest['video_id'],
                 'last_published': latest['published']
