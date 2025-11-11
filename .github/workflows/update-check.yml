@@ -2,7 +2,7 @@ name: Check YouTube Updates
 
 on:
   schedule:
-    - cron: '* /30 * * * *'  # 每小时运行一次
+    - cron: '* /30 * * * *'  # 每30分钟运行一次
   workflow_dispatch:
 
 # 关键：授予写权限
