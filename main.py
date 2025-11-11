@@ -107,29 +107,39 @@ def get_latest_videos(channel_id):
         print(f"[网络错误] 获取频道 {channel_id} RSS 失败: {e}")
         return []
 
-# ==================== Telegram通知 ====================
+# ==================== Telegram通知（增强版：添加按钮） ====================
 def send_telegram_notification(video):
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
         print("[跳过] Telegram 配置缺失")
         return
+
+    # 消息内容（Markdown 格式）
     message = (
         f"*新视频更新！*\n\n"
         f"**标题**：{video['title']}\n"
         f"**时间**：{video['published']}\n"
-        f"**简介**：{video['description'][:300]}{'...' if len(video['description']) > 300 else ''}\n"
-        f"[观看视频]({video['link']})"
+        f"**简介**：{video['description'][:300]}{'...' if len(video['description']) > 300 else ''}"
     )
+
+    # Inline Keyboard：添加“观看视频”按钮（点击跳转 YouTube）
+    keyboard = {
+        "inline_keyboard": [
+            [{"text": "🎥 观看视频", "url": video['link']}]  # URL 按钮，直接打开链接
+        ]
+    }
+
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
     payload = {
         'chat_id': TELEGRAM_CHAT_ID,
         'photo': video['thumbnail'],
         'caption': message,
-        'parse_mode': 'Markdown'
+        'parse_mode': 'Markdown',
+        'reply_markup': json.dumps(keyboard)  # 添加按钮 JSON
     }
     try:
         r = requests.post(url, data=payload, timeout=15)
         if r.status_code == 200:
-            print(f"[成功] 已发送通知: {video['title'][:40]}...")
+            print(f"[成功] 已发送通知（带按钮）: {video['title'][:40]}...")
         else:
             print(f"[失败] Telegram 返回 {r.status_code}: {r.text}")
     except Exception as e:
