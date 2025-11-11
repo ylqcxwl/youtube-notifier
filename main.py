@@ -3,125 +3,151 @@ import requests
 import json
 import os
 import sys
-import time
 from datetime import datetime
+import time
 
-# 配置：替换为你的Telegram Bot Token和Chat ID
-TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN')  # 从环境变量获取
-TELEGRAM_CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID')  # 从环境变量获取
+# ==================== 配置 ====================
+TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN')
+TELEGRAM_CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID')
 
-# 状态文件路径（在GitHub仓库中）
 STATE_FILE = 'state.json'
+CHANNELS_FILE = 'channels.json'  # 新文件：存储频道ID
 
-# 加载状态（上次视频ID和发布时间）
+# ==================== 加载频道ID ====================
+def load_channels():
+    if not os.path.exists(CHANNELS_FILE):
+        print(f"警告: {CHANNELS_FILE} 不存在，使用空列表。")
+        return []
+    with open(CHANNELS_FILE, 'r', encoding='utf-8') as f:
+        data = json.load(f)
+    return data.get('channels', [])
+
+# ==================== 工具函数 ====================
+
 def load_state(channel_ids):
     if os.path.exists(STATE_FILE):
-        with open(STATE_FILE, 'r') as f:
+        with open(STATE_FILE, 'r', encoding='utf-8') as f:
             state = json.load(f)
     else:
         state = {}
-    for channel_id in channel_ids:
-        if channel_id not in state:
-            state[channel_id] = {'last_video_id': None, 'last_published': None}
+    for cid in channel_ids:
+        if cid not in state:
+            state[cid] = {'last_video_id': None, 'last_published': None}
     return state
 
-# 保存状态
 def save_state(state):
-    with open(STATE_FILE, 'w') as f:
-        json.dump(state, f, indent=4)
+    with open(STATE_FILE, 'w', encoding='utf-8') as f:
+        json.dump(state, f, indent=4, ensure_ascii=False)
 
-# 检测频道ID是否有效
 def check_channel_id(channel_id):
     rss_url = f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}"
     feed = feedparser.parse(rss_url)
-    if feed.bozo:  # 如果解析失败
-        print(f"频道ID {channel_id} 无效或不存在。")
+    if feed.bozo:
+        print(f"频道ID {channel_id} 无效或无法访问。")
         return False
-    else:
-        print(f"频道ID {channel_id} 有效。频道名称: {feed.feed.title}")
-        return True
+    print(f"频道ID {channel_id} 有效 → {feed.feed.get('title', '未知频道')}")
+    return True
 
-# 获取最新视频
 def get_latest_videos(channel_id):
     rss_url = f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}"
     feed = feedparser.parse(rss_url)
     if feed.bozo:
-        return None
+        print(f"无法获取频道 {channel_id} 的RSS")
+        return []
+
     videos = []
-    for entry in feed.entries:
+    for entry in feed.entries[:5]:  # 只取最新5条防漏
         video = {
             'title': entry.title,
             'link': entry.link,
-            'published': entry.published,  # RFC 822格式时间
-            'description': entry.description,
-            'thumbnail': entry.media_thumbnail[0]['url'] if 'media_thumbnail' in entry else '',
-            'video_id': entry.yt_videoid
+            'video_id': entry.yt_videoid,
+            'description': entry.get('media_description', '') or entry.get('summary', ''),
+            'thumbnail': entry.media_thumbnail[0]['url'] if entry.get('media_thumbnail') else '',
+            'published': entry.published  # ISO-8601 格式
         }
         videos.append(video)
     return videos
 
-# 发送Telegram通知
+def parse_iso_time(iso_str):
+    """将 ISO-8601 时间转为时间戳（UTC）"""
+    try:
+        # 处理带时区的情况
+        dt = datetime.fromisoformat(iso_str.replace('Z', '+00:00'))
+        return dt.timestamp()
+    except Exception:
+        # 备用方案：尝试 RFC-822
+        try:
+            return time.mktime(time.strptime(iso_str, "%a, %d %b %Y %H:%M:%S %Z"))
+        except Exception as e:
+            print(f"时间解析失败: {iso_str} - {e}")
+            return 0  # 默认0，避免崩溃
+
 def send_telegram_notification(video):
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
-        print("Telegram Token或Chat ID未配置，无法发送通知。")
+        print("Telegram 配置缺失，跳过通知")
         return
 
     message = (
-        f"视频更新时间: {video['published']}\n"
-        f"视频名称: {video['title']}\n"
-        f"视频介绍: {video['description'][:200]}...\n"  # 截取介绍，避免太长
-        f"视频链接: {video['link']}"
+        f"*新视频更新！*\n\n"
+        f"**标题**：{video['title']}\n"
+        f"**时间**：{video['published']}\n"
+        f"**简介**：{video['description'][:300]}{'...' if len(video['description']) > 300 else ''}\n"
+        f"[观看视频]({video['link']})"
     )
-    
-    # 发送图片（封面）+文本
+
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
     payload = {
         'chat_id': TELEGRAM_CHAT_ID,
         'photo': video['thumbnail'],
-        'caption': message
+        'caption': message,
+        'parse_mode': 'Markdown'
     }
-    response = requests.post(url, data=payload)
-    if response.status_code == 200:
-        print(f"通知发送成功: {video['title']}")
-    else:
-        print(f"通知发送失败: {response.text}")
+    try:
+        r = requests.post(url, data=payload, timeout=10)
+        if r.status_code == 200:
+            print(f"通知已发送: {video['title']}")
+        else:
+            print(f"Telegram 发送失败: {r.text}")
+    except Exception as e:
+        print(f"Telegram 请求异常: {e}")
 
-# 主函数：检查更新
-def check_updates(channel_ids):
+# ==================== 主逻辑 ====================
+
+def check_updates():
+    channel_ids = load_channels()
+    if not channel_ids:
+        print("无频道ID配置，退出。")
+        return
+
     state = load_state(channel_ids)
+    updated = False
+
     for channel_id in channel_ids:
         videos = get_latest_videos(channel_id)
         if not videos:
-            print(f"无法获取频道 {channel_id} 的视频。")
             continue
-        
-        latest_video = videos[0]  # RSS按时间降序，第一条是最新的
-        last_published = state[channel_id]['last_published']
-        last_video_id = state[channel_id]['last_video_id']
-        
-        # 解析时间为UTC时间戳比较
-        latest_time = time.mktime(time.strptime(latest_video['published'], "%a, %d %b %Y %H:%M:%S %Z"))
-        if last_published:
-            last_time = time.mktime(time.strptime(last_published, "%a, %d %b %Y %H:%M:%S %Z"))
-        else:
-            last_time = 0
-        
-        if latest_video['video_id'] != last_video_id and latest_time > last_time:
-            print(f"检测到新视频: {latest_video['title']}")
-            send_telegram_notification(latest_video)
-            state[channel_id]['last_video_id'] = latest_video['video_id']
-            state[channel_id]['last_published'] = latest_video['published']
-    
-    save_state(state)
 
-if __name__ == "__main__":
-    # 示例频道ID列表（可配置多个）
-    channel_ids = ['UC_x5XG1OV2P6uZZ5FSM9Ttw', '另一个频道ID']  # 替换为实际ID
-    
-    if len(sys.argv) > 1 and sys.argv[1] == '--check-id':
-        if len(sys.argv) > 2:
-            check_channel_id(sys.argv[2])
-        else:
-            print("请提供频道ID，例如: python main.py --check-id UC_x5XG1OV2P6uZZ5FSM9Ttw")
-    else:
-        check_updates(channel_ids)
+        latest = videos[0]
+        last_id = state.get(channel_id, {}).get('last_video_id')
+        last_time = state.get(channel_id, {}).get('last_published')
+
+        current_time = parse_iso_time(latest['published'])
+
+        # 首次运行或有新视频
+        if latest['video_id'] != last_id:
+            # 进一步判断时间（防止RSS顺序错乱）
+            if last_time:
+                last_timestamp = parse_iso_time(last_time)
+                if current_time > last_timestamp:
+                    send_telegram_notification(latest)
+                    state[channel_id] = {
+                        'last_video_id': latest['video_id'],
+                        'last_published': latest['published']
+                    }
+                    updated = True
+            else:
+                # 首次检测，只通知最新一个
+                send_telegram_notification(latest)
+                state[channel_id] = {
+                    'last_video_id': latest['video_id'],
+                    'last_published': latest['
