@@ -1,39 +1,150 @@
-name: Check YouTube Updates
+import feedparser
+import requests
+import json
+import os
+import sys
+from datetime import datetime
+import time
 
-on:
-  schedule:
-    - cron: '0 * * * *'  # 每小时运行一次（可调整为'*/30 * * * *'每30分钟）
-  workflow_dispatch:  # 支持手动触发
+# ==================== 配置 ====================
+TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN')
+TELEGRAM_CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID')
 
-jobs:
-  check-updates:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}  # 用于push状态文件
+STATE_FILE = 'state.json'
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.10'
+# 你的频道ID列表（在此修改）
+CHANNEL_IDS = [
+    'UC_x5XG1OV2P6uZZ5FSM9Ttw',  # 示例：Google Developers
+    # 'UCxxxxxxxxxxxxxx',       # 继续添加
+]
 
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install feedparser requests
+# ==================== 工具函数 ====================
 
-      - name: Run script
-        env:
-          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python main.py
+def load_state():
+    if os.path.exists(STATE_FILE):
+        with open(STATE_FILE, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    return {cid: {'last_video_id': None, 'last_published': None} for cid in CHANNEL_IDS}
 
-      - name: Commit and push state file
-        run: |
-          git config --global user.name 'GitHub Actions'
-          git config --global user.email 'actions@github.com'
-          git add state.json
-          git commit -m "Update state file" || echo "No changes to commit"
-          git push
+def save_state(state):
+    with open(STATE_FILE, 'w', encoding='utf-8') as f:
+        json.dump(state, f, indent=4, ensure_ascii=False)
+
+def check_channel_id(channel_id):
+    rss_url = f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}"
+    feed = feedparser.parse(rss_url)
+    if feed.bozo:
+        print(f"频道ID {channel_id} 无效或无法访问。")
+        return False
+    print(f"频道ID {channel_id} 有效 → {feed.feed.get('title', '未知频道')}")
+    return True
+
+def get_latest_videos(channel_id):
+    rss_url = f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}"
+    feed = feedparser.parse(rss_url)
+    if feed.bozo:
+        print(f"无法获取频道 {channel_id} 的RSS")
+        return []
+
+    videos = []
+    for entry in feed.entries[:5]:  # 只取最新5条防漏
+        video = {
+            'title': entry.title,
+            'link': entry.link,
+            'video_id': entry.yt_videoid,
+            'description': entry.get('media_description', '') or entry.get('summary', ''),
+            'thumbnail': entry.media_thumbnail[0]['url'] if entry.get('media_thumbnail') else '',
+            'published': entry.published  # ISO-8601 格式
+        }
+        videos.append(video)
+    return videos
+
+def parse_iso_time(iso_str):
+    """将 ISO-8601 时间转为时间戳（UTC）"""
+    try:
+        # 处理带时区的情况
+        dt = datetime.fromisoformat(iso_str.replace('Z', '+00:00'))
+        return dt.timestamp()
+    except:
+        # 备用方案：尝试 RFC-822
+        return time.mktime(time.strptime(iso_str, "%a, %d %b %Y %H:%M:%S %Z"))
+
+def send_telegram_notification(video):
+    if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
+        print("Telegram 配置缺失，跳过通知")
+        return
+
+    message = (
+        f"*新视频更新！*\n\n"
+        f"**标题**：{video['title']}\n"
+        f"**时间**：{video['published']}\n"
+        f"**简介**：{video['description'][:300]}{'...' if len(video['description']) > 300 else ''}\n"
+        f"[观看视频]({video['link']})"
+    )
+
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
+    payload = {
+        'chat_id': TELEGRAM_CHAT_ID,
+        'photo': video['thumbnail'],
+        'caption': message,
+        'parse_mode': 'Markdown'
+    }
+    try:
+        r = requests.post(url, data=payload, timeout=10)
+        if r.status_code == 200:
+            print(f"通知已发送: {video['title']}")
+        else:
+            print(f"Telegram 发送失败: {r.text}")
+    except Exception as e:
+        print(f"Telegram 请求异常: {e}")
+
+# ==================== 主逻辑 ====================
+
+def check_updates():
+    state = load_state()
+    updated = False
+
+    for channel_id in CHANNEL_IDS:
+        videos = get_latest_videos(channel_id)
+        if not videos:
+            continue
+
+        latest = videos[0]
+        last_id = state[channel_id]['last_video_id']
+        last_time = state[channel_id]['last_published']
+
+        current_time = parse_iso_time(latest['published'])
+
+        # 首次运行或有新视频
+        if latest['video_id'] != last_id:
+            # 进一步判断时间（防止RSS顺序错乱）
+            if last_time:
+                last_timestamp = parse_iso_time(last_time)
+                if current_time > last_timestamp:
+                    send_telegram_notification(latest)
+                    state[channel_id] = {
+                        'last_video_id': latest['video_id'],
+                        'last_published': latest['published']
+                    }
+                    updated = True
+            else:
+                # 首次检测，只通知最新一个
+                send_telegram_notification(latest)
+                state[channel_id] = {
+                    'last_video_id': latest['video_id'],
+                    'last_published': latest['published']
+                }
+                updated = True
+
+    if updated:
+        save_state(state)
+    else:
+        print("无新视频更新")
+
+# ==================== CLI 入口 ====================
+
+if __name__ == "__main__":
+    if len(sys.argv) > 1 and sys.argv[1] == '--check-id' and len(sys.argv) > 2:
+        check_channel_id(sys.argv[2])
+    else:
+        check_updates()
