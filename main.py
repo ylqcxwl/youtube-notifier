@@ -11,16 +11,21 @@ TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN')
 TELEGRAM_CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID')
 
 STATE_FILE = 'state.json'
-CHANNELS_FILE = 'channels.json'  # 新文件：存储频道ID
+CHANNELS_FILE = 'channels.txt'  # 新文件：TXT格式，每行一个ID
 
 # ==================== 加载频道ID ====================
 def load_channels():
     if not os.path.exists(CHANNELS_FILE):
         print(f"警告: {CHANNELS_FILE} 不存在，使用空列表。")
         return []
+    
+    channel_ids = []
     with open(CHANNELS_FILE, 'r', encoding='utf-8') as f:
-        data = json.load(f)
-    return data.get('channels', [])
+        for line in f:
+            line = line.strip()
+            if line and not line.startswith('#'):  # 忽略空行和注释
+                channel_ids.append(line)
+    return channel_ids
 
 # ==================== 工具函数 ====================
 
@@ -150,4 +155,19 @@ def check_updates():
                 send_telegram_notification(latest)
                 state[channel_id] = {
                     'last_video_id': latest['video_id'],
-                    'last_published': latest['
+                    'last_published': latest['published']
+                }
+                updated = True
+
+    if updated:
+        save_state(state)
+    else:
+        print("无新视频更新")
+
+# ==================== CLI 入口 ====================
+
+if __name__ == "__main__":
+    if len(sys.argv) > 1 and sys.argv[1] == '--check-id' and len(sys.argv) > 2:
+        check_channel_id(sys.argv[2])
+    else:
+        check_updates()
