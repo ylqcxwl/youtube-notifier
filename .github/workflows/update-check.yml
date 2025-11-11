@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  actions: write   # 新增：允许删除工作流
 
 jobs:
   check-updates:
@@ -37,17 +38,9 @@ jobs:
         run: |
           git config --global user.name 'GitHub Actions'
           git config --global user.email 'actions@github.com'
-
-          # 1. 保存当前更改（stash）
-          git stash push -m "actions-temp-stash" || echo "No changes to stash"
-
-          # 2. 拉取最新代码
+          git stash push -m "actions-temp-stash" || echo "No changes"
           git pull --rebase origin main
-
-          # 3. 恢复之前保存的更改
-          git stash pop || echo "No stash to pop"
-
-          # 4. 添加并提交
+          git stash pop || echo "No stash"
           git add state.json channels.txt
           if git diff --staged --quiet; then
             echo "No changes to commit"
@@ -55,3 +48,27 @@ jobs:
             git commit -m "Update state: $(date -u +'%Y-%m-%d %H:%M UTC')"
             git push origin main
           fi
+
+      # 新增：自动清理旧的工作流记录（只保留最近 5 次）
+      - name: Delete old workflow runs
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const runs = await github.rest.actions.listWorkflowRunsForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow: 'update-check.yml',
+              per_page: 100
+            });
+
+            const keep = 2;  // 保留最近 5 次
+            const toDelete = runs.data.workflow_runs.slice(keep);
+
+            for (const run of toDelete) {
+              console.log(`Deleting run #${run.id} from ${run.created_at}`);
+              await github.rest.actions.deleteWorkflowRun({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                run_id: run.id
+              });
+            }
