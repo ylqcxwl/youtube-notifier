@@ -2,8 +2,8 @@ name: YouTube 更新检测
 
 on:
   schedule:
-    - cron: '*/30 * * * *'  # 每30分钟检查一次
-  workflow_dispatch:        # 手动触发
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
 
 jobs:
   check:
@@ -29,11 +29,11 @@ jobs:
         run: |
           python notifier.py
 
-      - name: 提交状态（可选）
+      - name: 提交状态
         if: always()
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
-          git add state.json || echo "无状态变更"
-          git commit -m "更新通知状态" || echo "无变更"
-          git push || echo "推送失败或无变更"
+          git add state.json || true
+          git commit -m "Update state" || true
+          git push || true
