@@ -26,43 +26,27 @@ youtube-notifier/
 ├── state.json                  # 状态记录（自动生成）
 └── .github/
     └── workflows/
-        └── update-check.yml    #GitHub Actions配置文件
----
-
-
-## 创建方法（首次部署）
-
-### 1. 创建 GitHub 仓库
-1. 登录 [GitHub](https://github.com)
-2. 点击右上角 `+` → **New repository**
-3. 仓库名建议：`youtube-notifier`
-4. 选择 **Public** 或 **Private**（建议 Private）
-5. 勾选 **Add a README file**
-6. 点击 **Create repository**
-
----
-
-### 2. 创建 Telegram Bot
-
-1. 打开 Telegram，搜索 `@BotFather`
-2. 发送 `/newbot`
-3. 按提示输入机器人名称和用户名
-4. 获取 **Bot Token**（格式：`123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ`）
-
-> **获取 Chat ID**：
-> - 给你的 Bot 发送任意消息
-> - 打开浏览器访问：
->   ```
->   https://api.telegram.org/bot<你的TOKEN>/getUpdates
->   ```
-> - 找到 `"chat":{"id":123456789}` → `123456789` 就是你的 Chat ID
-
----
-
-### 3. 添加文件到仓库
-
-#### 文件 1：`main.py`
-```python
+        └── update-check.yml    # GitHub Actions 配置文件
+创建方法（首次部署）
+1. 创建 GitHub 仓库
+登录 GitHub
+点击右上角 + → New repository
+仓库名建议：youtube-notifier
+选择 Public 或 Private（建议 Private）
+勾选 Add a README file
+点击 Create repository
+2. 创建 Telegram Bot
+打开 Telegram，搜索 @BotFather
+发送 /newbot
+按提示输入机器人名称和用户名
+获取 Bot Token（格式：123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ）
+获取 Chat ID：
+给你的 Bot 发送任意消息
+打开浏览器访问：
+https://api.telegram.org/bot<你的TOKEN>/getUpdates
+找到 "chat":{"id":123456789} → 123456789 就是你的 Chat ID
+3. 添加文件到仓库
+文件 1：main.py
 import feedparser
 import requests
 import json
@@ -358,3 +342,9 @@ state.json 包含历史记录，可定期清理
 支持：如有问题，提交 Issue 或联系维护者
 恭喜！你的 YouTube 更新通知机器人已成功部署！
 现在，你只需编辑 channels.txt 添加频道，机器人就会自动在 每天香港时间 9:00 为你推送新视频！
+**已修复**：  
+- 目录结构使用 `plaintext` 代码块，确保在 GitHub、VS Code、Typora 等所有平台 **完美对齐显示**  
+- 一键复制 → 粘贴 → 保存为 `README.md` 即可
+
+**现在复制整个代码块，粘贴到仓库根目录，命名为 `README.md`**  
+你的项目文档立即变得专业、美观、清晰！
