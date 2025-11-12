@@ -6,6 +6,7 @@ import os
 import sys
 from datetime import datetime
 import pytz
+import re
 
 # ==================== 配置 ====================
 TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN')
@@ -106,7 +107,7 @@ def load_state(channels):
         if cid not in state:
             state[cid] = {
                 'last_video_id': None,
-                'last_shorts_id': None,  # 新增 Shorts 状态
+                'last_shorts_id': None,
                 'channel_name': None
             }
             print(f"[初始化] 频道 {cid} 状态（视频 + Shorts）")
@@ -173,23 +174,42 @@ def to_beijing_time(iso_time_str):
         except:
             return iso_time_str
 
-# ==================== 获取最新视频/Shorts ====================
-def get_latest_videos(channel_id, feed_type='video'):
-    print(f"[RSS] 正在获取 {feed_type} 视频: {channel_id}")
+# ==================== 获取视频时长（用于区分 Shorts） ====================
+def get_video_duration(video_id):
     try:
-        if feed_type == 'shorts':
-            # Shorts RSS: 频道 Shorts 播放列表
-            playlist_id = f"UL{channel_id[2:]}"
-            rss_url = f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}&playlist_id={playlist_id}"
-        else:
-            rss_url = f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}"
+        print(f"[时长] 正在获取视频时长: {video_id}")
+        url = f"https://www.youtube.com/watch?v={video_id}"
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+        resp = requests.get(url, headers=headers, timeout=10)
+        if resp.status_code != 200:
+            print(f"[时长失败] 页面加载失败: {resp.status_code}")
+            return None
         
-        feed = feedparser.parse(rss_url)
+        # 提取 ytInitialPlayerResponse JSON
+        match = re.search(r'ytInitialPlayerResponse\s*=\s*({.+?});', resp.text)
+        if match:
+            data = json.loads(match.group(1))
+            duration = data.get('videoDetails', {}).get('lengthSeconds')
+            if duration:
+                print(f"[时长成功] {duration} 秒")
+                return int(duration)
+        
+        print(f"[时长失败] 未找到时长信息")
+        return None
+    except Exception as e:
+        print(f"[异常] 获取时长失败: {e}")
+        return None
+
+# ==================== 获取最新视频（统一 RSS + 时长过滤） ====================
+def get_latest_videos(channel_id):
+    print(f"[RSS] 正在获取频道视频: {channel_id}")
+    try:
+        feed = feedparser.parse(f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}")
         if feed.bozo:
-            print(f"[RSS失败] {feed_type} 解析错误: {getattr(feed, 'bozo_exception', '未知')}")
+            print(f"[RSS失败] 解析错误: {getattr(feed, 'bozo_exception', '未知')}")
             return None
         if not feed.entries:
-            print(f"[无{feed_type}] RSS 为空")
+            print(f"[无视频] RSS 为空")
             return None
         
         e = feed.entries[0]
@@ -197,26 +217,33 @@ def get_latest_videos(channel_id, feed_type='video'):
         thumb_url = e.media_thumbnail[0]['url'] if e.get('media_thumbnail') else None
         desc = e.get('media_description', '') or e.get('summary', '')
         pub_beijing = to_beijing_time(e.published)
+        video_id = e.yt_videoid
         
-        print(f"[最新{feed_type}] 标题: {title}")
-        print(f"[最新{feed_type}] 视频ID: {e.yt_videoid}")
-        print(f"[最新{feed_type}] 缩略图: {thumb_url or '无'}")
-        print(f"[最新{feed_type}] 发布时间: {pub_beijing}")
+        # 获取时长区分类型
+        duration = get_video_duration(video_id)
+        feed_type = 'Shorts' if duration and duration < 60 else '视频'
+        
+        print(f"[最新] 标题: {title}")
+        print(f"[最新] 视频ID: {video_id}")
+        print(f"[最新] 类型: {feed_type} ({duration or '未知'} 秒)")
+        print(f"[最新] 缩略图: {thumb_url or '无'}")
+        print(f"[最新] 发布时间: {pub_beijing}")
         
         return {
             'title': title,
             'link': e.link,
-            'video_id': e.yt_videoid,
+            'video_id': video_id,
             'description': desc,
             'thumb_url': thumb_url,
-            'published_beijing': pub_beijing
+            'published_beijing': pub_beijing,
+            'feed_type': feed_type
         }
     except Exception as e:
-        print(f"[网络错误] 获取 {feed_type} 失败: {e}")
+        print(f"[网络错误] 获取视频失败: {e}")
         return None
 
-# ==================== Telegram 通知（区分视频/Shorts） ====================
-def send_telegram_notification(video, channel_name, feed_type='video'):
+# ==================== Telegram 通知（区分类型） ====================
+def send_telegram_notification(video, channel_name):
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
         print("[跳过] Telegram 配置缺失")
         return
@@ -224,12 +251,11 @@ def send_telegram_notification(video, channel_name, feed_type='video'):
     desc = video['description']
     short_desc = (desc[:100] + '...') if len(desc) > 100 else desc
     title_link = f"[{video['title']}]({video['link']})"
-    type_label = f"**类型**：{feed_type}"
 
     message = (
         f"**频道**：{channel_name}\n\n"
         f"{title_link}\n"
-        f"{type_label}\n"
+        f"**类型**：{video['feed_type']}\n"
         f"**简介**：{short_desc}\n"
         f"**时间**：{video['published_beijing']}"
     )
@@ -251,14 +277,14 @@ def send_telegram_notification(video, channel_name, feed_type='video'):
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
 
     try:
-        print(f"[通知] 正在发送 {feed_type} 通知...")
+        print(f"[通知] 正在发送 {video['feed_type']} 通知...")
         r = requests.post(url, data=payload, timeout=15)
         if r.status_code == 200:
-            print(f"[成功] {feed_type} 通知已发送")
+            print(f"[成功] {video['feed_type']} 通知已发送")
         else:
             print(f"[失败] {r.status_code}: {r.text}")
     except Exception as e:
-        print(f"[异常] {feed_type} 发送失败: {e}")
+        print(f"[异常] 发送失败: {e}")
 
 # ==================== 主逻辑 ====================
 def check_updates():
@@ -288,35 +314,25 @@ def check_updates():
         name = get_channel_name(cid, ch, state)
         print(f"[频道] 最终名称: {name}")
 
-        # 检查常规视频
-        print(f"\n[子检查] 常规视频")
-        video = get_latest_videos(cid, 'video')
-        if video is not None:
-            last_id = state[cid].get('last_video_id')
+        video = get_latest_videos(cid)
+        if video is None:
+            print(f"[跳过] 无视频或获取失败")
+        else:
+            # 根据类型更新状态
+            if video['feed_type'] == 'Shorts':
+                last_id = state[cid].get('last_shorts_id')
+                state_key = 'last_shorts_id'
+            else:
+                last_id = state[cid].get('last_video_id')
+                state_key = 'last_video_id'
+            
             if video['video_id'] != last_id:
-                print(f"[新视频] 发现常规更新！ID: {video['video_id']}")
-                send_telegram_notification(video, name, '视频')
-                state[cid]['last_video_id'] = video['video_id']
+                print(f"[新{video['feed_type']}] 发现更新！ID: {video['video_id']}")
+                send_telegram_notification(video, name)
+                state[cid][state_key] = video['video_id']
                 total_updated += 1
             else:
-                print(f"[无更新] 常规视频已通知")
-        else:
-            print(f"[跳过] 常规视频获取失败")
-
-        # 检查 Shorts
-        print(f"\n[子检查] Shorts")
-        shorts = get_latest_videos(cid, 'shorts')
-        if shorts is not None:
-            last_shorts_id = state[cid].get('last_shorts_id')
-            if shorts['video_id'] != last_shorts_id:
-                print(f"[新Shorts] 发现 Shorts 更新！ID: {shorts['video_id']}")
-                send_telegram_notification(shorts, name, 'Shorts')
-                state[cid]['last_shorts_id'] = shorts['video_id']
-                total_updated += 1
-            else:
-                print(f"[无更新] Shorts 已通知")
-        else:
-            print(f"[跳过] Shorts 获取失败")
+                print(f"[无更新] {video['feed_type']} 已通知")
 
         print(f"{'='*60}")
         print(f"  [频道 {idx}/{len(channels)}] 日志结束")
@@ -325,7 +341,7 @@ def check_updates():
     # 回写文件
     save_channel_name_to_file(channels, original_lines)
 
-    # 保存状态（含名称 + Shorts ID）
+    # 保存状态
     save_state(state)
 
     print(f"[完成] 本次共 {total_updated} 个更新（视频 + Shorts）")
