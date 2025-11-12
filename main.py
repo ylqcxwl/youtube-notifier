@@ -17,19 +17,21 @@ CHANNELS_FILE = 'channels.txt'
 # 北京时间时区
 BEIJING_TZ = pytz.timezone('Asia/Shanghai')
 
-# ==================== 加载频道（详细日志） ====================
+# ==================== 加载频道（保留原始行） ====================
 def load_channels():
     print(f"[加载] 正在读取 {CHANNELS_FILE}...")
     if not os.path.exists(CHANNELS_FILE):
         print(f"[错误] {CHANNELS_FILE} 不存在！")
-        return []
-    
+        return [], []
+
     channels = []
+    original_lines = []
     with open(CHANNELS_FILE, 'r', encoding='utf-8') as f:
-        lines = f.readlines()
-    
-    for line_num, line in enumerate(lines, 1):
-        line = line.strip()
+        raw_lines = f.readlines()  # 保留 \n
+        original_lines = raw_lines[:]
+
+    for line_num, raw_line in enumerate(raw_lines, 1):
+        line = raw_line.strip()
         if not line or line.startswith('#'):
             if line.startswith('#'):
                 print(f"[注释] 行 {line_num}: {line}")
@@ -38,33 +40,47 @@ def load_channels():
             parts = line.split('|', 1)
             cid = parts[0].strip()
             name = parts[1].strip() if len(parts) > 1 else None
-            channels.append({'id': cid, 'name': name, 'line_num': line_num, 'raw_line': line})
+            channels.append({
+                'id': cid,
+                'name': name,
+                'line_num': line_num,
+                'raw_line': raw_line  # 保留原始行（含 \n）
+            })
             print(f"[加载] 频道 {len(channels)}: {cid} ({name or '自动获取'})")
         except Exception as e:
             print(f"[错误] 行 {line_num} 解析失败: {line} → {e}")
     print(f"[完成] 共加载 {len(channels)} 个频道")
-    return channels, lines
+    return channels, original_lines
 
-# ==================== 回写频道名称到 channels.txt ====================
+# ==================== 回写频道名称到 channels.txt（修复换行） ====================
 def save_channel_name(channels, original_lines):
+    if not channels:
+        return
+
     updated = False
     new_lines = original_lines[:]
+
     for ch in channels:
         if ch['name'] is None and ch.get('fetched_name'):
             cid = ch['id']
-            new_line = f"{cid} | {ch['fetched_name']}\n"
-            new_lines[ch['line_num'] - 1] = new_line
-            print(f"[回写] 频道 {cid} 名称已写入: {ch['fetched_name']}")
-            updated = True
+            new_line = f"{cid} | {ch['fetched_name']}\n"  # 必须加 \n
+            line_idx = ch['line_num'] - 1
+            if line_idx < len(new_lines):
+                old_line = new_lines[line_idx].strip()
+                if '|' not in old_line or len(old_line.split('|', 1)[1].strip()) == 0:
+                    new_lines[line_idx] = new_line
+                    print(f"[回写] 频道 {cid} 名称已写入: {ch['fetched_name']}")
+                    updated = True
+
     if updated:
         try:
             with open(CHANNELS_FILE, 'w', encoding='utf-8') as f:
                 f.writelines(new_lines)
-            print(f"[回写] {CHANNELS_FILE} 已更新")
+            print(f"[回写] {CHANNELS_FILE} 已成功更新")
         except Exception as e:
             print(f"[错误] 回写 {CHANNELS_FILE} 失败: {e}")
 
-# ==================== 获取频道名称（容错 + 回写） ====================
+# ==================== 获取频道名称（支持回写） ====================
 def get_channel_name(channel_id, channel_obj):
     if channel_obj['name']:
         print(f"[缓存] 使用已有名称: {channel_obj['name']}")
@@ -79,7 +95,7 @@ def get_channel_name(channel_id, channel_obj):
         if feed.feed and feed.feed.get('title'):
             name = feed.feed.title.strip()
             print(f"[成功] 获取到频道名称: {name}")
-            channel_obj['fetched_name'] = name  # 标记用于回写
+            channel_obj['fetched_name'] = name
             return name
         else:
             print(f"[无名称] RSS 无 title")
@@ -132,7 +148,7 @@ def to_beijing_time(iso_time_str):
         except:
             return iso_time_str
 
-# ==================== 获取最新视频（独立容错） ====================
+# ==================== 获取最新视频 ====================
 def get_latest_videos(channel_id):
     print(f"[RSS] 正在获取视频: {channel_id}")
     try:
@@ -211,7 +227,7 @@ def send_telegram_notification(video, channel_name):
     except Exception as e:
         print(f"[异常] 发送失败: {e}")
 
-# ==================== 主逻辑（每个频道独立日志块） ====================
+# ==================== 主逻辑 ====================
 def check_updates():
     print(f"\n{'='*60}")
     now_beijing = datetime.now(BEIJING_TZ).strftime('%Y-%m-%d %H:%M:%S')
