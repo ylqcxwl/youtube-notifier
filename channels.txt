@@ -1,7 +1,6 @@
 # YouTube 频道ID | 频道名称（可选，首次自动获取）
 UC_x5XG1OV2P6uZZ5FSM9Ttw | Google for Developers
-UCU1RaYhgjlaig3ydjJocINg | 雨落倾城
-UCNZ-6L2fZ-QjA6t6B9k9ngw | 
+UCU1RaYhgjlaig3ydjJocINg | 
 UC_0Gn008Lj36lpoUSS8E_dg | Joey blog
 UCvijahEyGtvMpmMHBu4FS2w | 零度解说
 UCq8DICunczvLuJJq414110A | Zach King
