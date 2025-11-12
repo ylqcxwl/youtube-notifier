@@ -2,12 +2,12 @@ name: Check YouTube Updates
 
 on:
   schedule:
-    - cron: '0 * * * *'  # 每小时运行一次（UTC 整点 = HKT 整点）
+    - cron: '0 * * * *'  # 每小时整点（UTC = 北京时间 08:00）
   workflow_dispatch:
 
 permissions:
   contents: write
-  actions: write   # 新增：允许删除工作流
+  actions: write
 
 jobs:
   check-updates:
@@ -26,7 +26,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install feedparser requests
+          pip install -r requirements.txt
 
       - name: Run YouTube update checker
         env:
@@ -49,8 +49,7 @@ jobs:
             git push origin main
           fi
 
-      # 新增：自动清理旧的工作流记录（只保留最近 5 次）
-      - name: Delete old workflow runs
+      - name: Delete old workflow runs (keep latest 5)
         uses: actions/github-script@v6
         with:
           script: |
@@ -60,12 +59,10 @@ jobs:
               workflow: 'update-check.yml',
               per_page: 100
             });
-
-            const keep = 2;  // 保留最近 5 次
+            const keep = 5;
             const toDelete = runs.data.workflow_runs.slice(keep);
-
             for (const run of toDelete) {
-              console.log(`Deleting run #${run.id} from ${run.created_at}`);
+              console.log(`Deleting run #${run.id}`);
               await github.rest.actions.deleteWorkflowRun({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
