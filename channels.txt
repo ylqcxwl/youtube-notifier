@@ -1,7 +1,7 @@
 # YouTube 频道ID | 频道名称（可选，首次自动获取）
 UC_x5XG1OV2P6uZZ5FSM9Ttw | 
-UCcp7ehr6kCzUtLItAH17egw | 雨落倾城
-UCNZ-6L2fZ-QjA6t6B9k9ngw | 佬王
+UCU1RaYhgjlaig3ydjJocINg | 
+UCNZ-6L2fZ-QjA6t6B9k9ngw | 
 UC_0Gn008Lj36lpoUSS8E_dg | Joey blog
 UCvijahEyGtvMpmMHBu4FS2w | 
 UCq8DICunczvLuJJq414110A | 
