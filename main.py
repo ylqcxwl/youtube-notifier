@@ -1,8 +1,11 @@
+#!/usr/bin/env python3
 import feedparser
 import requests
 import json
 import os
 import sys
+from datetime import datetime
+import pytz
 
 # ==================== 配置 ====================
 TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN')
@@ -10,6 +13,9 @@ TELEGRAM_CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID')
 
 STATE_FILE = 'state.json'
 CHANNELS_FILE = 'channels.txt'
+
+# 北京时间时区
+BEIJING_TZ = pytz.timezone('Asia/Shanghai')
 
 # ==================== 加载频道（详细日志） ====================
 def load_channels():
@@ -86,6 +92,24 @@ def save_state(state):
     except Exception as e:
         print(f"[错误] 保存 state.json 失败: {e}")
 
+# ==================== 时间转换：UTC → 北京时间 ====================
+def to_beijing_time(iso_time_str):
+    try:
+        # YouTube RSS 时间格式
+        utc_dt = datetime.strptime(iso_time_str, "%a, %d %b %Y %H:%M:%S %Z")
+        if utc_dt.tzinfo is None:
+            utc_dt = pytz.utc.localize(utc_dt)
+        beijing_dt = utc_dt.astimezone(BEIJING_TZ)
+        return beijing_dt.strftime("%Y年%m月%d日 %H:%M")
+    except:
+        try:
+            # 备用格式
+            utc_dt = datetime.fromisoformat(iso_time_str.replace('Z', '+00:00'))
+            beijing_dt = utc_dt.astimezone(BEIJING_TZ)
+            return beijing_dt.strftime("%Y年%m月%d日 %H:%M")
+        except:
+            return iso_time_str  # 失败返回原值
+
 # ==================== 获取最新视频（独立容错） ====================
 def get_latest_videos(channel_id):
     print(f"[RSS] 正在获取频道视频: {channel_id}")
@@ -102,13 +126,15 @@ def get_latest_videos(channel_id):
         title = e.title.strip() if e.title else "(无标题)"
         thumb_url = e.media_thumbnail[0]['url'] if e.get('media_thumbnail') else None
         desc = e.get('media_description', '') or e.get('summary', '')
-        pub = e.published
+        pub_raw = e.published
+        pub_beijing = to_beijing_time(pub_raw)
         
         print(f"[最新] 视频标题: {title}")
         print(f"[最新] 视频ID: {e.yt_videoid}")
         print(f"[最新] 缩略图: {thumb_url or '无'}")
         print(f"[最新] 简介长度: {len(desc)} 字")
-        print(f"[最新] 发布时间: {pub}")
+        print(f"[最新] 发布时间（UTC）: {pub_raw}")
+        print(f"[最新] 发布时间（北京）: {pub_beijing}")
         
         return {
             'title': title,
@@ -116,7 +142,7 @@ def get_latest_videos(channel_id):
             'video_id': e.yt_videoid,
             'description': desc,
             'thumb_url': thumb_url,
-            'published': pub
+            'published_beijing': pub_beijing
         }
     except Exception as e:
         print(f"[网络错误] 获取 {channel_id} 视频失败: {e}")
@@ -129,14 +155,14 @@ def send_telegram_notification(video, channel_name):
         return
 
     desc = video['description']
-    short_desc = (desc[:100] + '…') if len(desc) > 100 else desc
+    short_desc = (desc[:100] + '...') if len(desc) > 100 else desc
     title_link = f"[{video['title']}]({video['link']})"
 
     message = (
         f"**频道**：{channel_name}\n\n"
         f"{title_link}\n"
         f"**简介**：{short_desc}\n"
-        f"**时间**：{video['published']}"
+        f"**时间**：{video['published_beijing']}"
     )
 
     # 有封面 → sendPhoto；无封面 → sendMessage
@@ -169,7 +195,8 @@ def send_telegram_notification(video, channel_name):
 # ==================== 主逻辑（每个频道独立） ====================
 def check_updates():
     print(f"\n{'='*60}")
-    print(f"  YouTube 通知器启动 - 香港时间 {__import__('datetime').datetime.now().strftime('%Y-%m-%d %H:%M:%S')} HKT")
+    now_beijing = datetime.now(BEIJING_TZ).strftime('%Y-%m-%d %H:%M:%S')
+    print(f"  YouTube 通知器启动 - 北京时间 {now_beijing}")
     print(f"{'='*60}\n")
 
     channels = load_channels()
