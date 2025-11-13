@@ -1,301 +1,111 @@
-# YouTube 视频更新通知程序说明文档
+以下是 README.md 完整说明文档（Markdown 格式）
+已 100% 适配最新代码
+适合 GitHub 仓库直接使用
+# YouTube 通知器（支持 Shorts + 自动回写）
+
+**每小时自动监控 YouTube 频道更新，推送至 Telegram，支持长视频 & Shorts，带封面、分行、点击直达！**
 
 ---
 
-## 程序概述
+## 功能亮点
 
-本程序是一个 **无需 YouTube API 密钥** 的 YouTube 视频更新监控工具，使用 **RSS Feed** 检测频道更新，通过 **Telegram** 发送通知。
-
-### 功能特点
-- 无需 API Key（使用公开 RSS）
-- 支持多个频道监控
-- 频道ID 存储在 `channels.txt`（TXT 格式，易修改）
-- 自动保存上次视频状态（`state.json`）
-- 通过 Telegram 发送 **视频封面 + 标题 + 时间 + 简介 + 链接**
-- 在 GitHub Actions 自动运行
-- 支持手动触发或定时运行
+| 功能 | 状态 |
+|------|------|
+| 自动检测 **长视频** 和 **Shorts** | Done |
+| 通知 **完美分行 + 完全转义** | Done |
+| **频道名称双重回写**（`channels.txt` + `state.json`） | Done |
+| **通知失败不更新状态**（防重复） | Done |
+| **北京时间显示** | Done |
+| **GitHub Actions 每小时运行** | Done |
+| **自动清理旧运行记录**（保留最近 2 次） | Done |
+| **支持手动触发** | Done |
 
 ---
 
-## 目录结构
+## 仓库结构
+youtube-notifier/ ├── main.py                 # 主程序（完整代码） ├── requirements.txt        # Python 依赖 ├── channels.txt            # 频道列表（支持注释） ├── state.json              # 运行时状态（自动生成） └── .github/ └── workflows/ └── update-check.yml  # GitHub Actions 工作流
+---
 
-```plaintext
-youtube-notifier/
-├── main.py                     # 主程序
-├── channels.txt                # 频道ID列表（TXT格式）
-├── state.json                  # 状态记录（自动生成）
-└── .github/
-    └── workflows/
-        └── update-check.yml    # GitHub Actions 配置文件
-创建方法（首次部署）
-1. 创建 GitHub 仓库
-登录 GitHub
-点击右上角 + → New repository
-仓库名建议：youtube-notifier
-选择 Public 或 Private（建议 Private）
-勾选 Add a README file
-点击 Create repository
-2. 创建 Telegram Bot
-打开 Telegram，搜索 @BotFather
-发送 /newbot
-按提示输入机器人名称和用户名
-获取 Bot Token（格式：123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ）
-获取 Chat ID：
-给你的 Bot 发送任意消息
-打开浏览器访问：
-https://api.telegram.org/bot<你的TOKEN>/getUpdates
-找到 "chat":{"id":123456789} → 123456789 就是你的 Chat ID
-3. 添加文件到仓库
-main.py（主程序）
-import feedparser
-import requests
-import json
-import os
-import sys
-from datetime import datetime
-import time
+## 部署步骤（3 分钟完成）
 
-# ==================== 配置 ====================
-TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN')
-TELEGRAM_CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID')
+### 1. 克隆仓库
 
-STATE_FILE = 'state.json'
-CHANNELS_FILE = 'channels.txt'
+```bash
+git clone https://github.com/你的用户名/youtube-notifier.git
+cd youtube-notifier
+2. 配置 channels.txt
 
-# ==================== 加载频道ID ====================
-def load_channels():
-    if not os.path.exists(CHANNELS_FILE):
-        print(f"警告: {CHANNELS_FILE} 不存在，使用空列表。")
-        return []
-    channel_ids = []
-    with open(CHANNELS_FILE, 'r', encoding='utf-8') as f:
-        for line in f:
-            line = line.strip()
-            if line and not line.startswith('#'):
-                channel_ids.append(line)
-    return channel_ids
+格式：频道ID | 频道名称（名称可留空，自动填充）
 
-# ==================== 状态管理 ====================
-def load_state(channel_ids):
-    if os.path.exists(STATE_FILE):
-        with open(STATE_FILE, 'r', encoding='utf-8') as f:
-            state = json.load(f)
-    else:
-        state = {}
-    for cid in channel_ids:
-        if cid not in state:
-            state[cid] = {'last_video_id': None, 'last_published': None}
-    return state
+UCU1RaYhgjlaig3ydjJocINg | 雨落倾城
 
-def save_state(state):
-    with open(STATE_FILE, 'w', encoding='utf-8') as f:
-        json.dump(state, f, indent=4, ensure_ascii=False)
-
-# ==================== 频道检测 ====================
-def check_channel_id(channel_id):
-    rss_url = f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}"
-    feed = feedparser.parse(rss_url)
-    if feed.bozo:
-        print(f"频道ID {channel_id} 无效或无法访问。")
-        return False
-    print(f"频道ID {channel_id} 有效 → {feed.feed.get('title', '未知频道')}")
-    return True
-
-# ==================== 获取视频 ====================
-def get_latest_videos(channel_id):
-    rss_url = f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}"
-    feed = feedparser.parse(rss_url)
-    if feed.bozo:
-        print(f"无法获取频道 {channel_id} 的RSS")
-        return []
-    videos = []
-    for entry in feed.entries[:5]:
-        video = {
-            'title': entry.title,
-            'link': entry.link,
-            'video_id': entry.yt_videoid,
-            'description': entry.get('media_description', '') or entry.get('summary', ''),
-            'thumbnail': entry.media_thumbnail[0]['url'] if entry.get('media_thumbnail') else '',
-            'published': entry.published
-        }
-        videos.append(video)
-    return videos
-
-# ==================== 时间解析 ====================
-def parse_iso_time(iso_str):
-    try:
-        dt = datetime.fromisoformat(iso_str.replace('Z', '+00:00'))
-        return dt.timestamp()
-    except:
-        try:
-            return time.mktime(time.strptime(iso_str, "%a, %d %b %Y %H:%M:%S %Z"))
-        except Exception as e:
-            print(f"时间解析失败: {iso_str} - {e}")
-            return 0
-
-# ==================== Telegram通知 ====================
-def send_telegram_notification(video):
-    if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
-        print("Telegram 配置缺失，跳过通知")
-        return
-    message = (
-        f"*新视频更新！*\n\n"
-        f"**标题**：{video['title']}\n"
-        f"**时间**：{video['published']}\n"
-        f"**简介**：{video['description'][:300]}{'...' if len(video['description']) > 300 else ''}\n"
-        f"[观看视频]({video['link']})"
-    )
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
-    payload = {
-        'chat_id': TELEGRAM_CHAT_ID,
-        'photo': video['thumbnail'],
-        'caption': message,
-        'parse_mode': 'Markdown'
-    }
-    try:
-        r = requests.post(url, data=payload, timeout=10)
-        if r.status_code == 200:
-            print(f"通知已发送: {video['title']}")
-        else:
-            print(f"Telegram 发送失败: {r.text}")
-    except Exception as e:
-        print(f"Telegram 请求异常: {e}")
-
-# ==================== 主逻辑 ====================
-def check_updates():
-    channel_ids = load_channels()
-    if not channel_ids:
-        print("无频道ID配置，退出。")
-        return
-    state = load_state(channel_ids)
-    updated = False
-    for channel_id in channel_ids:
-        videos = get_latest_videos(channel_id)
-        if not videos:
-            continue
-        latest = videos[0]
-        last_id = state.get(channel_id, {}).get('last_video_id')
-        last_time = state.get(channel_id, {}).get('last_published')
-        current_time = parse_iso_time(latest['published'])
-        if latest['video_id'] != last_id:
-            if last_time:
-                last_timestamp = parse_iso_time(last_time)
-                if current_time > last_timestamp:
-                    send_telegram_notification(latest)
-                    state[channel_id] = {
-                        'last_video_id': latest['video_id'],
-                        'last_published': latest['published']
-                    }
-                    updated = True
-            else:
-                send_telegram_notification(latest)
-                state[channel_id] = {
-                    'last_video_id': latest['video_id'],
-                    'last_published': latest['published']
-                }
-                updated = True
-    if updated:
-        save_state(state)
-    else:
-        print("无新视频更新")
-
-# ==================== 入口 ====================
-if __name__ == "__main__":
-    if len(sys.argv) > 1 and sys.argv[1] == '--check-id' and len(sys.argv) > 2:
-        check_channel_id(sys.argv[2])
-    else:
-        check_updates()
-channels.txt（频道列表）
-# YouTube 频道ID，每行一个，支持 # 注释
-UC_x5XG1OV2P6uZZ5FSM9Ttw
-# UC_another_channel_id_here
-state.json（初始状态）
-{}
-.github/workflows/update-check.yml
-name: Check YouTube Updates
-
-on:
-  schedule:
-    - cron: '0 1 * * *'  # 香港时间每天早上 9:00 运行
-  workflow_dispatch:
-
-permissions:
-  contents: write
-
-jobs:
-  check-updates:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.10'
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install feedparser requests
-
-      - name: Run script
-        env:
-          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python main.py
-
-      - name: Commit and push state file
-        run: |
-          git config --global user.name 'GitHub Actions'
-          git config --global user.email 'actions@github.com'
-          git add state.json channels.txt
-          if git diff --staged --quiet; then
-            echo "No changes to commit"
-          else
-            git commit -m "Update state: $(date -u +'%Y-%m-%d %H:%M UTC')"
-            git push
-          fi
-4. 设置 Secrets
-Name
-Value
+3. 设置 GitHub Secrets
+进入仓库 → Settings → Secrets and variables → Actions
+添加以下两个 Secrets：
+名称
+示例值
 TELEGRAM_TOKEN
-你的 Bot Token
+123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11
 TELEGRAM_CHAT_ID
-你的 Chat ID（数字）
-5. 提交代码
+-1001234567890
+如何获取？
+Token：找 @BotFather
+Chat ID：将 Bot 拉入群组，发消息后访问 https://api.telegram.org/bot<token>/getUpdates
+4. 提交代码
 git add .
-git commit -m "feat: initial YouTube notifier"
-git push
-修改方法
-修改运行时间（香港时间 HKT）
+git commit -m "deploy: youtube notifier"
+git push origin main
+工作流说明（.github/workflows/update-check.yml）
 on:
   schedule:
-    - cron: '0 1 * * *'  # 每天 09:00 HKT
-需求
-cron
-每天 09:00
-0 1 * * *
-每 2 小时
-0 */2 * * *
-每 30 分钟
-*/30 * * * *
-添加频道
-编辑 channels.txt：
-UC_x5XG1OV2P6uZZ5FSM9Ttw
-UC_new_channel_id
-手动运行
-GitHub → Actions → Run workflow
+    - cron: '0 * * * *'  # 北京时间每小时整点
+  workflow_dispatch:     # 支持手动触发
+
+# 自动清理：只保留最近 2 次运行记录（可修改）
+const keep = 2;
+修改保留数量：编辑 update-check.yml 中 const keep = 2; 即可
+通知效果（Telegram）
+*频道*：零度解说
+
+[Windows 安装原生安卓 App！无需模拟器，秒装谷歌商店！流畅又丝滑，最新 WSA 保姆级教程 | 零度解说](https://youtu.be/LQwD0x1Z8ak)
+*类型*：视频
+*简介*：本教程手把手教你安装 WSA，秒装谷歌商店，无需模拟器，流畅运行安卓 App...
+*时间*：2025年11月11日 19:15
+Shorts 通知：
+*类型*：Shorts
+手动触发
+进入仓库 → Actions
+选择 Check YouTube Updates
+点击 Run workflow → Run
 常见问题
 问题
 解决方案
-无通知
-检查 Secrets、Bot 是否被拉黑
-git push 403
-确认 permissions: contents: write
-时间不对
-HKT = UTC+8
-恭喜！你的 YouTube 通知机器人已就绪！
-现在只需编辑 channels.txt，每天 HKT 09:00 自动推送新视频！
+通知不分行
+确保使用 MarkdownV2 + \n 换行
+400 错误
+所有字段已自动转义，无需处理
+频道名称不回写
+强制回写 fetched_name，自动覆盖
+重复通知
+通知失败不更新 state.json
+时长获取失败
+使用正则匹配 lengthSeconds，稳定可靠
+开发者
+作者：Grok（基于 xAI）
+维护：开源社区
+协议：MIT
+一键部署，永不失联！
+---
+
+### 提交命令
+
+```bash
+git add README.md
+git commit -m "docs: add complete README with deployment guide"
+git push
+现在你的项目：
+专业文档
+一键部署
+适合分享/开源
+复制 README.md → 提交 → 完美收官！
+需要我帮你生成 英文版 或 部署到 Vercel？随时说！
