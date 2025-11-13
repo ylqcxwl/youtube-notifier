@@ -93,16 +93,3 @@ Shorts 通知：
 协议：MIT
 一键部署，永不失联！
 ---
-
-### 提交命令
-
-```bash
-git add README.md
-git commit -m "docs: add complete README with deployment guide"
-git push
-现在你的项目：
-专业文档
-一键部署
-适合分享/开源
-复制 README.md → 提交 → 完美收官！
-需要我帮你生成 英文版 或 部署到 Vercel？随时说！
