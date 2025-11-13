@@ -37,6 +37,7 @@ cd youtube-notifier
 UCU1RaYhgjlaig3ydjJocINg | 雨落倾城
 
 3. 设置 GitHub Secrets
+
 进入仓库 → Settings → Secrets and variables → Actions
 添加以下两个 Secrets：
 名称
@@ -45,13 +46,13 @@ TELEGRAM_TOKEN
 123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11
 TELEGRAM_CHAT_ID
 -1001234567890
+
 如何获取？
+
 Token：找 @BotFather
 Chat ID：将 Bot 拉入群组，发消息后访问 https://api.telegram.org/bot<token>/getUpdates
+
 4. 提交代码
-git add .
-git commit -m "deploy: youtube notifier"
-git push origin main
 工作流说明（.github/workflows/update-check.yml）
 on:
   schedule:
@@ -61,19 +62,12 @@ on:
 # 自动清理：只保留最近 2 次运行记录（可修改）
 const keep = 2;
 修改保留数量：编辑 update-check.yml 中 const keep = 2; 即可
-通知效果（Telegram）
-*频道*：零度解说
 
-[Windows 安装原生安卓 App！无需模拟器，秒装谷歌商店！流畅又丝滑，最新 WSA 保姆级教程 | 零度解说](https://youtu.be/LQwD0x1Z8ak)
-*类型*：视频
-*简介*：本教程手把手教你安装 WSA，秒装谷歌商店，无需模拟器，流畅运行安卓 App...
-*时间*：2025年11月11日 19:15
-Shorts 通知：
-*类型*：Shorts
 手动触发
 进入仓库 → Actions
 选择 Check YouTube Updates
 点击 Run workflow → Run
+
 常见问题
 问题
 解决方案
@@ -87,9 +81,3 @@ Shorts 通知：
 通知失败不更新 state.json
 时长获取失败
 使用正则匹配 lengthSeconds，稳定可靠
-开发者
-作者：Grok（基于 xAI）
-维护：开源社区
-协议：MIT
-一键部署，永不失联！
----
