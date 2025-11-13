@@ -223,45 +223,47 @@ def get_latest_videos(channel_id):
         print(f"[网络错误] 获取视频失败: {e}")
         return None
 
-# ==================== Telegram 通知（MarkdownV2 转义） ====================
+# ==================== Telegram 通知（完美分行 + 完全转义） ====================
 def send_telegram_notification(video, channel_name):
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
         return False
 
     def escape(text):
-        return re.sub(r'([_*\[\]()~`>#+\-=|{}.!])', r'\\\1', text)
+        if not text:
+            return ""
+        return re.sub(r'([_*\[\]()~`>#+\-=|{}.!])', r'\\\1', str(text))
 
-    desc = video['description']
-    short_desc = (desc[:97] + '...') if len(desc) > 100 else desc
-    title_escaped = escape(video['title'])
-    title_link = f"[{title_escaped}]({video['link']})"
+    title = escape(video['title'].strip())
+    channel = escape(channel_name.strip())
+    desc = escape(video['description'][:97].strip() + ('...' if len(video['description']) > 97 else ''))
+    pub_time = video['published_beijing']
+    link = video['link']
+    feed_type = video['feed_type']
 
     message = (
-        f"*频道*：{escape(channel_name)}\\n\\n"
-        f"{title_link}\\n"
-        f"*类型*：{video['feed_type']}\\n"
-        f"*简介*：{escape(short_desc)}\\n"
-        f"*时间*：{video['published_beijing']}"
+        f"*频道*：{channel}\n"
+        f"\n"
+        f"[{title}]({link})\n"
+        f"*类型*：{feed_type}\n"
+        f"*简介*：{desc}\n"
+        f"*时间*：{pub_time}"
     )
 
+    payload = {
+        'chat_id': TELEGRAM_CHAT_ID,
+        'parse_mode': 'MarkdownV2'
+    }
+
     if video['thumb_url']:
-        payload = {
-            'chat_id': TELEGRAM_CHAT_ID,
-            'photo': video['thumb_url'],
-            'caption': message,
-            'parse_mode': 'MarkdownV2'
-        }
+        payload['photo'] = video['thumb_url']
+        payload['caption'] = message
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
     else:
-        payload = {
-            'chat_id': TELEGRAM_CHAT_ID,
-            'text': message,
-            'parse_mode': 'MarkdownV2'
-        }
+        payload['text'] = message
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
 
     try:
-        print(f"[通知] 正在发送 {video['feed_type']} 通知...")
+        print(f"[通知] 正在发送 {feed_type} 通知...")
         r = requests.post(url, data=payload, timeout=15)
         if r.status_code == 200:
             print(f"[成功] 通知已发送")
@@ -276,7 +278,7 @@ def send_telegram_notification(video, channel_name):
 # ==================== 主逻辑 ====================
 def check_updates():
     print(f"\n{'='*60}")
-    now_beijing = datetime.now(BEIJING_TZ).strftime('%Y-%m-%d %H:%M:%S')  # 修复：BEIJING_TZ
+    now_beijing = datetime.now(BEIJING_TZ).strftime('%Y-%m-%d %H:%M:%S')
     print(f"  YouTube 通知器启动 - 北京时间 {now_beijing}")
     print(f"{'='*60}\n")
 
