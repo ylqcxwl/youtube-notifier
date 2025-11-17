@@ -223,7 +223,7 @@ def get_latest_videos(channel_id):
         print(f"[网络错误] 获取视频失败: {e}")
         return None
 
-# ==================== Telegram 通知（完美分行 + 完全转义） ====================
+# ==================== Telegram 通知（移除类型字段） ====================
 def send_telegram_notification(video, channel_name):
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
         return False
@@ -238,13 +238,11 @@ def send_telegram_notification(video, channel_name):
     desc = escape(video['description'][:97].strip() + ('...' if len(video['description']) > 97 else ''))
     pub_time = video['published_beijing']
     link = video['link']
-    feed_type = video['feed_type']
 
     message = (
         f"*频道*：{channel}\n"
         f"\n"
         f"[{title}]({link})\n"
-        f"*类型*：{feed_type}\n"
         f"*简介*：{desc}\n"
         f"*时间*：{pub_time}"
     )
@@ -263,7 +261,7 @@ def send_telegram_notification(video, channel_name):
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
 
     try:
-        print(f"[通知] 正在发送 {feed_type} 通知...")
+        print(f"[通知] 正在发送通知...")
         r = requests.post(url, data=payload, timeout=15)
         if r.status_code == 200:
             print(f"[成功] 通知已发送")
