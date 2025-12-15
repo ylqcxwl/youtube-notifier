@@ -26,8 +26,8 @@ youtube-notifier/
 ├── channels.txt # 频道列表（支持注释）  
 ├── state.json # 运行时状态（自动生成）  
 └── .github/  
-└── workflows/  
-└── update-check.yml # GitHub Actions工作流  
+    └── workflows/  
+        └── update-check.yml # GitHub Actions工作流  
 
 ---
 
