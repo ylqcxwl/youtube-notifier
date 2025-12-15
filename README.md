@@ -66,18 +66,18 @@ on:
   workflow_dispatch:     # 支持手动触发  
 ```
 
-# 自动清理：只保留最近 2 次运行记录（可修改）
+### 自动清理：只保留最近 2 次运行记录（可修改）
 const keep = 2;
 修改保留数量：编辑 update-check.yml 中 const keep = 2; 即可
 
-手动触发
-进入仓库 → Actions
-选择 Check YouTube Updates
-点击 Run workflow → Run
+### 手动触发
+进入仓库 → Actions  
+选择 Check YouTube Updates  
+点击 Run workflow → Run  
 常见问题
-技术细节
-自动时区转换：所有时间自动转换为北京时间
-错误处理：网络请求失败自动重试，通知失败不更新状态
-内存优化：自动清理 GitHub Actions 运行记录，节省存储空间
-兼容性：完美支持 YouTube Shorts 和常规视频
-开始使用：按照部署步骤配置即可享受自动推送服务！
+### 技术细节
+自动时区转换：所有时间自动转换为北京时间  
+错误处理：网络请求失败自动重试，通知失败不更新状态  
+内存优化：自动清理 GitHub Actions 运行记录，节省存储空间  
+兼容性：完美支持 YouTube Shorts 和常规视频  
+开始使用：按照部署步骤配置即可享受自动推送服务！  
